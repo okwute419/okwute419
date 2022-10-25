@@ -1,4 +1,4 @@
-version: "3"
+# Sample YAML File to upgrade to GL 5.0 with MongoDB 5.0.13 & OpenSearch 2.2
 
 # This uses the official Graylog Docker image to start Graylog.
 # It also includes the MailHog mailserver to test email sending.
