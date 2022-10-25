@@ -1,0 +1,188 @@
+version: "3"
+
+# This uses the official Graylog Docker image to start Graylog.
+# It also includes the MailHog mailserver to test email sending.
+#
+# Just put this docker-compose.yml file into a new directory and run
+# "docker-compose up"
+#
+# URLs:
+#
+# - Graylog: http://localhost:9000/ (user: admin / pass: admin)
+# - MailHog: http://localhost:8025/
+__________________________________________________________________________________________________________________________________________________________________
+-
+services:
+  mongors1:
+    image: "mongo:5.0.13"
+    ports:
+      - "27021:27017"
+    deploy:
+      resources:
+        limits:
+          memory: "256m"
+    volumes:
+      - ./rs-init.sh:/scripts/rs-init.sh
+      - ./mongors1/configdb:/data/configdb
+      - ./mongors1/db:/data/db
+    restart: unless-stopped
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs01" ]
+
+  mongors2:
+    image: "mongo:5.0.13"
+    ports:
+      - "27022:27017"
+    deploy:
+      resources:
+        limits:
+          memory: "256m"
+    volumes:
+      - ./mongors2/configdb:/data/configdb
+      - ./mongors2/db:/data/db
+    restart: unless-stopped
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs01" ]
+
+  mongors3:
+    image: "mongo:5.0.13"
+    ports:
+      - "27023:27017"
+    deploy:
+      resources:
+        limits:
+          memory: "256m"
+    volumes:
+      - ./mongors3/configdb:/data/configdb
+      - ./mongors3/db:/data/db
+    restart: unless-stopped
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs01" ]
+
+___________________________________________________________________________________________________________________________________________________________________
+
+  osnode1:
+      image: opensearchproject/opensearch:2.2.0
+      environment:
+        - cluster.name=test-cluster
+        - node.name=osnode1
+        - discovery.seed_hosts=osnode2,osnode3
+        - cluster.initial_master_nodes=osnode1,osnode2,osnode3
+        - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+        - "DISABLE_SECURITY_PLUGIN=true"
+        - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      ulimits:
+        memlock:
+          soft: -1
+          hard: -1
+        nofile:
+          soft: 65536 # maximum number of open files for the OpenSearch user, set to at least 65536 on modern systems
+          hard: 65536
+      volumes:
+        - ./esdata1:/usr/share/opensearch/data
+      ports:
+        - 9201:9200
+        - 9601:9600 # required for Performance Analyzer
+
+  osnode2:
+      image: opensearchproject/opensearch:2.2.0
+      environment:
+        - cluster.name=test-cluster
+        - node.name=osnode2
+        - discovery.seed_hosts=osnode1,osnode3
+        - cluster.initial_master_nodes=osnode1,osnode2,osnode3
+        - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+        - "DISABLE_SECURITY_PLUGIN=true"
+        - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      ulimits:
+        memlock:
+          soft: -1
+          hard: -1
+        nofile:
+          soft: 65536 # maximum number of open files for the OpenSearch user, set to at least 65536 on modern systems
+          hard: 65536
+      volumes:
+        - ./esdata2:/usr/share/opensearch/data
+      ports:
+        - 9202:9200
+        - 9602:9600 # required for Performance Analyzer
+
+  osnode3:
+      image: opensearchproject/opensearch:2.2.0
+      environment:
+        - cluster.name=test-cluster
+        - node.name=osnode3
+        - discovery.seed_hosts=osnode1,osnode2
+        - cluster.initial_master_nodes=osnode1,osnode2,osnode3
+        - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+        - "DISABLE_SECURITY_PLUGIN=true"
+        - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      ulimits:
+        memlock:
+          soft: -1
+          hard: -1
+        nofile:
+          soft: 65536 # maximum number of open files for the OpenSearch user, set to at least 65536 on modern systems
+          hard: 65536
+      volumes:
+        - ./esdata3:/usr/share/opensearch/data
+      ports:
+        - 9203:9200
+        - 9603:9600 # required for Performance Analyzer
+
+_________________________________________________________________________________________________________________________________________________________________
+
+  graylog1:
+    image: "graylog/graylog:5.0.0-alpha.1-2"
+    environment:
+      GRAYLOG_IS_MASTER: "true"
+      GRAYLOG_PASSWORD_SECRET: "ChinekeThankyou2022!!"
+      # Password: admin
+      GRAYLOG_ROOT_PASSWORD_SHA2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+      GRAYLOG_ELASTICSEARCH_HOSTS: "http://osnode1:9200,http://osnode2:9200,http://osnode3:9200"
+      GRAYLOG_HTTP_EXTERNAL_URI: "http://localhost:9000/"
+      GRAYLOG_HTTP_ENABLE_CORS: "true"
+      # To make Graylog use a MongoDB Replica-set
+      GRAYLOG_MONGODB_URI: "mongodb://admin:password@mongors1:27017,mongors2:27017,mongors3:27017/graylog?replicaSet=rs01"
+    ports:
+      - "9000:9000"       # Graylog web interface and REST API
+      - "1514:1514"       # Syslog TCP
+      - "1514:1514/udp"   # Syslog UDP
+      - "5555:5555"       # Raw TCP
+      - "3514:3514/udp"   # GELF UDP Input for NXLogs
+      - "5044:5044"       # Beats
+
+  graylog2:
+    image: "graylog/graylog:5.0.0-alpha.1-2"
+    environment:
+      GRAYLOG_IS_MASTER: "false"
+      GRAYLOG_PASSWORD_SECRET: "ChinekeThankyou2022!!"
+      # Password: admin
+      GRAYLOG_ROOT_PASSWORD_SHA2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+      GRAYLOG_ELASTICSEARCH_HOSTS: "http://osnode1:9200,http://osnode2:9200,http://osnode3:9200"
+      GRAYLOG_HTTP_BIND_ADDRESS: "0.0.0.0:9001"
+      GRAYLOG_HTTP_EXTERNAL_URI: "http://localhost:9000/"
+      GRAYLOG_HTTP_ENABLE_CORS: "true"
+      # To make Graylog use a MongoDB Replica-set
+      GRAYLOG_MONGODB_URI: "mongodb://admin:password@mongors1:27017,mongors2:27017,mongors3:27017/graylog?replicaSet=rs01"
+    ports:
+      - "9001:9001"       # Graylog web interface and REST API
+      - "1515:1514"       # Syslog TCP
+      - "1515:1514/udp"   # Syslog UDP
+      - "5556:5555"       # Raw TCP	
+
+  graylog3:
+    image: "graylog/graylog:5.0.0-alpha.1-2"
+    environment:
+      GRAYLOG_IS_MASTER: "false"
+      GRAYLOG_PASSWORD_SECRET: "ChinekeThankyou2022!!"
+      # Password: admin
+      GRAYLOG_ROOT_PASSWORD_SHA2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+      GRAYLOG_ELASTICSEARCH_HOSTS: "http://osnode1:9200,http://osnode2:9200,http://osnode3:9200"
+      GRAYLOG_HTTP_BIND_ADDRESS: "0.0.0.0:9002"
+      GRAYLOG_HTTP_EXTERNAL_URI: "http://localhost:9000/"
+      GRAYLOG_HTTP_ENABLE_CORS: "true"
+      # To make Graylog use a MongoDB Replica-set
+      GRAYLOG_MONGODB_URI: "mongodb://admin:password@mongors1:27017,mongors2:27017,mongors3:27017/graylog?replicaSet=rs01"
+    ports:
+      - "9002:9002"       # Graylog web interface and REST API
+      - "1516:1514"       # Syslog TCP
+      - "1516:1514/udp"   # Syslog UDP
+      - "5557:5555"       # Raw TCP
